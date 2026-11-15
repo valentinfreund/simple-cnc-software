@@ -1,0 +1,3 @@
+build/
+firmware/tests/test_core
+firmware/tests/sim_loop
