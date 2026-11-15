@@ -16,7 +16,9 @@
  * Output sample rate and pulse shape. With 500 kHz one sample is 2 us:
  *   pulse 4 us, gap >= 4 us  ->  max. 125 kHz step rate. */
 #define BOARD_SAMPLE_RATE_HZ   500000u
-#define BOARD_BLOCK_SAMPLES    250u      /* rendered per interrupt = 0.5 ms   */
+#define BOARD_BLOCK_SAMPLES    100u      /* rendered per interrupt = 0.2 ms   */
+#define BOARD_HOST_PERIOD_US   1000u     /* servo period of LinuxCNC          */
+#define BOARD_MARGIN_US        200u      /* tolerated lateness of a frame     */
 #define BOARD_STEP_LEN         2         /* samples                            */
 #define BOARD_STEP_SPACE       2         /* samples                            */
 #define BOARD_DIR_SETUP        5         /* samples (10 us)                    */

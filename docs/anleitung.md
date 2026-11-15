@@ -8,8 +8,8 @@
 
 | Teil | Aufgabe |
 |---|---|
-| Raspberry Pi mit LinuxCNC | G-Code, Bahnplanung, Oberfläche; schickt jede Millisekunde eine Sollgeschwindigkeit pro Achse |
-| Echtzeitboard (WeAct MiniSTM32H723, STM32H723VGT6) | erzeugt Schritt/Richtung, liest Schalter, überwacht Verbindung und Not-Halt |
+| Raspberry Pi mit LinuxCNC | G-Code, Bahnplanung, Oberfläche; schickt jede Millisekunde eine Sollposition pro Achse |
+| Echtzeitboard (WeAct MiniSTM32H723, STM32H723VGT6) | fährt von Sollposition zu Sollposition, erzeugt Schritt/Richtung, liest Schalter, überwacht Verbindung und Not-Halt |
 | Servotreiber (Puls/Richtung) | regelt den Motor |
 
 Fällt die Verbindung länger als 10 ms aus oder öffnet der Not-Halt-Eingang,
@@ -152,12 +152,12 @@ make -C firmware/boards/weact-h723-spi flash
    ```
    setp cncboard.joint.0.scale 800
    setp cncboard.enable 1
-   setp cncboard.joint.0.vel-cmd 10
+   setp cncboard.joint.0.pos-cmd 10
    ```
-   An PB10 müssen 8 kHz anliegen (mit Pull-up nach 3,3 V oder 5 V messen, der
-   Pin ist Open-Drain), `cncboard.joint.0.pos-fb` läuft mit 10 mm/s hoch.
-   `halrun` beenden: die Pulse müssen innerhalb von 10 ms aufhören und die
-   LED blinken.
+   Das Board fährt die 10 mm mit seiner Höchstfrequenz (125 kHz) an: an PB10
+   erscheinen 8000 Pulse (mit Pull-up nach 3,3 V oder 5 V messen, der Pin ist
+   Open-Drain), `cncboard.joint.0.pos-board` steht danach auf 10.
+   `halrun` beenden: die LED muss nach 10 ms langsam blinken (Verbindung weg).
 3. **Ein Motor ohne Mechanik** (Kupplung offen): Treiber anschließen,
    LinuxCNC mit `fraese-xyyz` starten, Achse im Handbetrieb langsam fahren.
    Drehrichtung und Weg pro Umdrehung prüfen (10 mm Verfahrweg = 2
@@ -167,21 +167,31 @@ make -C firmware/boards/weact-h723-spi flash
    mit kleiner Geschwindigkeit, dann Verfahrwege und Portalausrichtung
    (`HOME_OFFSET` von Y1/Y2).
 
-## 7. Regler-Abstimmung und Zeitverhalten
+## 7. Zeitverhalten
 
-Das Board fährt Geschwindigkeiten; die Lage regelt in LinuxCNC je Gelenk ein
-`pid` mit `FF1 = 1`, `FF2 = 0.0025` und `Pgain = 100`.
+LinuxCNC schickt jede Millisekunde die Sollposition aller Achsen. Das Board
+fährt in seiner eigenen Millisekunde geradlinig von der letzten zur neuen
+Sollposition und berechnet die Pulsfrequenz dafür aus seiner exakt bekannten
+eigenen Position. Es gibt nichts abzustimmen.
 
-- Alle Achsen bekommen ihre Sollwerte im selben Frame und geben ihre Pulse im
-  selben Abtasttakt aus (ein gemeinsames Portregister, 2 µs Raster). Zwischen
-  den Achsen gibt es deshalb keinen Zeitversatz.
-- Zwischen Sollwert und Wirkung liegen etwa 2,5 ms Totzeit. Sie ist für alle
-  Achsen gleich und verschiebt die Bahn nur zeitlich; `FF2` gleicht sie beim
-  Beschleunigen aus.
-- Abstimmen mit `halscope` auf den Schleppfehler (`joint.N.f-error`): `FF2`
-  so stellen, dass er beim Beschleunigen und Bremsen möglichst flach bleibt.
-  `Pgain` nur erhöhen, wenn ein Fehler stehen bleibt; ein hoher Wert
-  verstärkt das Zeitrauschen des Raspberry Pi.
-- `make -C firmware/tests sim` simuliert den Regelkreis auf dem PC und gibt
-  Zeitversatz, Welligkeit und Schleppfehler aus.
-- Danach `FERROR`/`MIN_FERROR` in `fraese.ini` enger stellen.
+- **Gleichzeitigkeit:** Alle Achsen bekommen ihre Sollposition im selben
+  Frame und geben ihre Pulse im selben Abtasttakt aus (ein gemeinsames
+  Portregister, 2 µs Raster).
+- **Taktausgleich:** Die Uhren von Raspberry Pi und Board laufen nie exakt
+  gleich schnell, und der Takt des Pi schwankt. Das Board misst, wann die
+  Frames im Mittel ankommen, und richtet sein Millisekundenraster danach aus.
+  Einzelne verspätete Frames ändern daran nichts.
+- **Verzögerung:** Die ganze Maschine läuft etwa 2 ms hinter den Sollwerten
+  her, alle Achsen gleich. Auf die Bahn hat das keinen Einfluss. Beim
+  Antasten (G38) und bei der Referenzfahrt steckt es als kleiner, konstanter
+  Versatz (Geschwindigkeit × 2 ms) im Ergebnis; langsam antasten.
+- **Verspätete oder verlorene Frames:** Kommt ein Sollwert mehr als 0,2 ms
+  später als erwartet oder gar nicht, fährt das Board mit der aktuellen
+  Geschwindigkeit weiter und holt die Abweichung mit dem nächsten Sollwert
+  auf. `cncboard.late-commands` zählt diese Fälle. Zählt der Wert im Betrieb
+  laufend hoch, ist der Rechner für 1 ms Takt zu unruhig (Latenztest von
+  LinuxCNC laufen lassen).
+- **Schleppfehler:** `joint.N.f-error` zeigt die vom Board gemessene
+  Abweichung von der geplanten Bahn, ohne die konstante Verzögerung.
+- `make -C firmware/tests sim` simuliert die Kette auf dem PC und gibt
+  Verzögerung, Welligkeit und größte Abweichung aus.

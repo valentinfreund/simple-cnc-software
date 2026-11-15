@@ -1,8 +1,9 @@
 /*
- * sim_loop.c - closed-loop timing simulation: LinuxCNC position loop (pid
- * with FF1/FF2, 1 kHz) driving the board library through the real protocol
- * and the real output pipeline. Prints how far the pulses on the pins are
- * from the commanded trajectory. Run with `make -C firmware/tests sim`.
+ * sim_loop.c - timing simulation of the whole chain: LinuxCNC sends one
+ * position command per servo period (1 kHz, with clock offset and jitter)
+ * through the real protocol into the board library and its output pipeline.
+ * Prints how far the pulses on the pins are from the commanded trajectory.
+ * Run with `make -C firmware/tests sim`.
  *
  * Move: 0 -> 100 mm/s with 1000 mm/s^2, cruise, stop. 800 steps/mm.
  *
@@ -18,7 +19,7 @@
 #define VMAX       100.0     /* mm/s */
 #define ACC        1000.0    /* mm/s^2 */
 #define T_CRUISE   0.4       /* s */
-#define FRAME_END  175       /* samples from cycle start to end of SPI frame (0.35 ms) */
+#define FRAME_END  210       /* samples from cycle start to end of SPI frame (0.42 ms) */
 
 static uint16_t port;
 static long pin_pos;         /* steps seen on the step/dir pins of axis 0 */
@@ -42,24 +43,25 @@ static double traj(double t)
     return 2 * xa + VMAX * T_CRUISE;
 }
 
-static void run(const char *name, double drift, int jitter_samples, double pgain, double ff2, int old_feedback)
+static void run(const char *name, double clock_offset, int jitter_samples, int spike_every, int lose_every)
 {
     cnc_core_cfg_t cfg = {
         .stepgen = { .sample_rate_hz = FS, .num_axes = 1, .step_len = 2, .step_space = 2,
                      .dir_setup = 5, .axis = { { .step_pin = 0, .dir_pin = 4 } } },
-        .block_samples = BLOCK, .watchdog_ms = 10, .estop_input = -1,
+        .block_samples = BLOCK, .host_period_samples = 500, .margin_samples = 100,
+        .watchdog_ms = 10, .estop_input = -1,
     };
-    enum { N = 900, START = 50 };
-    static double x_true[N], cmd_at[N];
+    enum { N = 2900, START = 2000 };          /* the host idles 2 s before the move */
+    static double x_true[N];
     uint8_t tx[CNCP_FRAME_SIZE], rx_host[CNCP_FRAME_SIZE];
-    double host_ms = 500.0 * (1.0 + drift);      /* host millisecond in board samples */
-    double fb = 0, cmd_prev = 0, cmd_d_prev = 0, ferr_max = 0;
+    double host_ms = 500.0 * (1.0 + clock_offset);     /* host millisecond in board samples */
+    double ferr_max = 0;
     long now = 0;
     uint16_t seq = 0;
+    unsigned late = 0;
 
     port = 0; pin_pos = 0; sim_idx = 0; sim_last_half = 1;
     memset(sim_buf, 0, sizeof(sim_buf));
-    sim_feedback_at_buffer_end = old_feedback;
     srand(1);
     cnc_core_init(&cfg);
     sim_on_sample(cnc_core_idle_sample());
@@ -69,71 +71,62 @@ static void run(const char *name, double drift, int jitter_samples, double pgain
         long t_nom = (long)(k * host_ms);
         sim_advance((unsigned)(t_nom - now)); now = t_nom;
         x_true[k] = pin_pos / SCALE;
-        cmd_at[k] = traj((k - START) * 0.001);
 
-        /* servo thread starts late by a random amount (host latency) */
+        /* the servo thread starts late by a random amount (host latency) */
         int j = jitter_samples ? rand() % (jitter_samples + 1) : 0;
-        sim_advance((unsigned)j); now += j;
+        if (spike_every && k % spike_every == spike_every - 1)
+            j = 200;                                   /* a 400 us latency spike */
+        sim_advance((unsigned)(j + FRAME_END)); now += j + FRAME_END;
 
-        /* LinuxCNC pid: error against the previous target, FF on the new one */
-        double cmd = cmd_at[k];
-        double cmd_d = (cmd - cmd_prev) / 0.001;
-        double err = cmd_prev - fb;
-        double out = pgain * err + cmd_d + ff2 * (cmd_d - cmd_d_prev) / 0.001;
-        if (k > START && fabs(err) > ferr_max) ferr_max = fabs(err);
-        cmd_prev = cmd; cmd_d_prev = cmd_d;
-
-        /* SPI frame: the host gets the status the board prepared one frame ago */
-        sim_advance(FRAME_END); now += FRAME_END;
         cncp_cmd_t c; cncp_status_t st;
         memset(&c, 0, sizeof(c));
         c.flags = k >= 5 ? CNCP_CMD_ENABLE : 0;
         c.seq = ++seq;
-        c.vel_mhz[0] = (int32_t)(out * SCALE * 1000.0);
+        c.pos_cmd[0] = (int32_t)llround(traj((k - START) * 0.001) * SCALE * CNCP_POS_PER_STEP);
         cncp_cmd_seal(&c);
+        if (lose_every && k % lose_every == lose_every - 1)
+            c.seq ^= 1;                                /* frame damaged on the wire */
         memcpy(rx_host, tx, sizeof(tx));
         cnc_core_frame((const uint8_t *)&c, tx);
-        memcpy(&st, rx_host, sizeof(st));
-        fb = st.pos[0] / (CNCP_POS_PER_STEP * SCALE);
+        memcpy(&st, rx_host, sizeof(st));              /* the host sees the previous status */
+        double ferr = fabs(st.err[0] / (CNCP_POS_PER_STEP * SCALE));
+        if (k > START && ferr > ferr_max) ferr_max = ferr;
+        late = st.late;
     }
 
-    /* cruise: constant lag = pure time shift; its ripple is the jitter */
+    /* cruise: constant lag = pure time shift; its variation is what matters */
     int c0 = START + 150, c1 = START + (int)(1000 * (VMAX / ACC + T_CRUISE)) - 20;
     double lag_sum = 0, lag_min = 1e9, lag_max = -1e9;
     for (int k = c0; k < c1; k++) {
-        double lag = cmd_at[k] - x_true[k];
+        double lag = traj((k - START) * 0.001) - x_true[k];
         lag_sum += lag; if (lag < lag_min) lag_min = lag; if (lag > lag_max) lag_max = lag;
     }
-    double lag = lag_sum / (c1 - c0), shift = lag / VMAX;     /* seconds */
+    double shift = lag_sum / (c1 - c0) / VMAX;                /* seconds */
 
-    /* whole move: deviation from the time-shifted command = what is left
-     * after the shift, i.e. what could show up as contour error */
+    /* whole move: deviation from the time-shifted command */
     double dyn_max = 0;
     for (int k = START; k < N; k++) {
         double e = fabs(x_true[k] - traj((k - START) * 0.001 - shift));
         if (e > dyn_max) dyn_max = e;
     }
-    printf("%-44s %7.2f ms %8.1f um %9.1f um %9.1f um\n", name, shift * 1e3,
-           (lag_max - lag_min) * 1e3, dyn_max * 1e3, ferr_max * 1e3);
+    printf("%-38s %6.2f ms %8.2f um %9.2f um %9.2f um %6u\n", name, shift * 1e3,
+           (lag_max - lag_min) * 1e3, dyn_max * 1e3, ferr_max * 1e3, late);
 }
 
-int main(int argc, char **argv)
+int main(void)
 {
-    if (argc == 3) {            /* sim_loop <Pgain> <FF2>: try your own tuning */
-        run("crystal, host jitter 0..50 us", 20e-6, 25, atof(argv[1]), atof(argv[2]), 0);
-        return 0;
-    }
-    printf("%-44s %10s %11s %12s %12s\n", "100 mm/s, 1000 mm/s^2, 1.25 um/step",
-           "time shift", "ripple p-p", "dyn. error", "f-error");
-    run("old feedback, P=200, FF2=0, clock 1% off",   0.01,  0,  200, 0,      1);
-    run("new feedback, P=200, FF2=0, clock 1% off",   0.01,  0,  200, 0,      0);
-    run("new feedback, P=200, FF2=0, crystal",        20e-6, 0,  200, 0,      0);
-    run("new feedback, P=100, FF2=0.0025, crystal",   20e-6, 0,  100, 0.0025, 0);
-    run("  + host jitter 0..50 us",                   20e-6, 25, 100, 0.0025, 0);
-    run("  + host jitter 0..200 us",                  20e-6, 100, 100, 0.0025, 0);
-    printf("\ntime shift : constant delay of the whole trajectory (same for all axes)\n"
+    printf("%-38s %9s %11s %12s %12s %6s\n", "100 mm/s, 1000 mm/s^2, 1.25 um/step",
+           "delay", "ripple p-p", "max. error", "f-error", "late");
+    run("ideal host",                          20e-6, 0,   0,  0);
+    run("host jitter 0..50 us",                20e-6, 25,  0,  0);
+    run("host jitter 0..200 us",               20e-6, 100, 0,  0);
+    run("jitter 0..50 us + 400 us spikes",     20e-6, 25,  97, 0);
+    run("jitter 0..50 us, 1 frame in 50 lost", 20e-6, 25,  0,  50);
+    run("board clock 1 % off, jitter 0..50 us", 0.01, 25,  0,  0);
+    printf("\ndelay      : constant delay of the whole trajectory (same for all axes)\n"
            "ripple p-p : variation of the position during cruise, includes +-1 step quantisation\n"
-           "dyn. error : largest deviation from the time-shifted command over the whole move\n"
-           "f-error    : largest following error LinuxCNC sees\n");
+           "max. error : largest deviation from the delayed command over the whole move\n"
+           "f-error    : largest following error LinuxCNC sees (reported by the board)\n"
+           "late       : commands that arrived too late to be executed on time\n");
     return 0;
 }

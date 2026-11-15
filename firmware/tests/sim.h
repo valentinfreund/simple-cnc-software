@@ -12,7 +12,7 @@
 #include "cnc_core.h"
 
 #define FS      500000u
-#define BLOCK   250u
+#define BLOCK   100u
 
 static void sim_on_sample(uint32_t word);      /* called for every output sample */
 

@@ -6,9 +6,11 @@ Servotreiber und liest Schalter ein.
 
 ```
 LinuxCNC (Raspberry Pi / PC)                 Echtzeitboard
-  G-Code, Bahnplanung, Oberfläche   <---->     Schritterzeugung (500 kHz Abtastrate)
-  HAL-Treiber cncboard_spi         64-Byte-    Ein-/Ausgänge, Not-Halt, Watchdog
-  1 Frame pro Millisekunde         Frames
+  G-Code, Bahnplanung, Oberfläche   ---->      fährt von Sollposition zu Sollposition
+  HAL-Treiber cncboard_spi        Sollposition  Schritterzeugung (500 kHz Abtastrate)
+  1 Frame pro Millisekunde        <----        eigener Takt, auf den Host eingeregelt
+                                  Position,    Ein-/Ausgänge, Not-Halt, Watchdog
+                                  Abweichung
 ```
 
 | Ordner | Inhalt |
