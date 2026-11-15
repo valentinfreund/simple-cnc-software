@@ -45,6 +45,7 @@ typedef struct {
     volatile int32_t count;     /* signed number of generated steps            */
     int64_t  pos;               /* rendered position in 2^-32 steps            */
     int64_t  d_last, d_prev;    /* position change of the last two blocks      */
+    int64_t  d_cur;             /* position change of the block being rendered */
     uint32_t step_on, step_off, dir_pos, dir_neg;   /* precomputed samples     */
 } stepgen_axis_t;
 
@@ -68,17 +69,31 @@ uint32_t stepgen_max_rate_hz(const stepgen_t *sg);
  * Takes effect at the start of the next rendered block. */
 void stepgen_set_velocity(stepgen_t *sg, unsigned axis, int32_t vel_mhz);
 
+/* Same, as a raw signed phase increment: 2^-32 steps per sample (clamped). */
+void stepgen_set_inc(stepgen_t *sg, unsigned axis, int64_t inc);
+
 /* Stop all axes (takes effect at the start of the next rendered block). */
 void stepgen_stop_all(stepgen_t *sg);
 
-/* Render the next n samples into buf. */
+/* Render the next n samples into buf. A block of the output buffer may be
+ * rendered in several pieces (to change the rate inside a block); call
+ * stepgen_end_block() once the block is complete. */
 void stepgen_render(stepgen_t *sg, uint32_t *buf, unsigned n);
+void stepgen_end_block(stepgen_t *sg, unsigned block_samples);
 
-/* Position of one axis in 1/256 steps at the sample that is being output
- * right now. The last two rendered blocks are still (partly) waiting in the
- * output buffer; `played` says how many of their samples are already out
- * (0 .. size of both blocks), counted from the start of the older block. */
+/* Position at the end of everything rendered so far, in 2^-32 steps. */
+static inline int64_t stepgen_pos_rendered(const stepgen_t *sg, unsigned axis)
+{
+    return sg->axis[axis].pos;
+}
+
+/* Position of one axis at the sample that is being output right now. The last
+ * two blocks are still (partly) waiting in the output buffer; `played` says
+ * how many of their samples are already out (0 .. size of both blocks),
+ * counted from the start of the older block.
+ * _raw: in 2^-32 steps; stepgen_position(): in 1/256 steps, wrapping. */
 #define STEPGEN_POS_PER_STEP 256
+int64_t stepgen_position_raw(const stepgen_t *sg, unsigned axis, unsigned played);
 int32_t stepgen_position(const stepgen_t *sg, unsigned axis, unsigned played);
 
 static inline int32_t stepgen_count(const stepgen_t *sg, unsigned axis)

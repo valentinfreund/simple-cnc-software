@@ -2,7 +2,8 @@
  * cnc_core.h - board-independent machine logic of the real-time board.
  *
  * Owns the protocol handling, the state machine (disabled / running / fault),
- * the communication watchdog and the step generator. A board port only has to
+ * the communication watchdog, the waypoint follower with its clock recovery
+ * and the step generator. A board port only has to
  *   - call cnc_core_frame() whenever a frame from the host has arrived,
  *   - call cnc_core_render() whenever the next block of step samples is due,
  *   - implement the four cnc_board_*() functions below.
@@ -22,6 +23,9 @@
 typedef struct {
     stepgen_cfg_t stepgen;
     uint16_t block_samples;       /* samples rendered per cnc_core_render() call   */
+    uint16_t host_period_samples; /* nominal servo period of the host in samples   */
+    uint16_t margin_samples;      /* how late a frame may arrive (vs. the average)
+                                     and still be executed on time                 */
     uint16_t watchdog_ms;         /* max. time without a valid frame while running */
     int8_t   estop_input;         /* input bit that is 1 while e-stop is active, -1 = none */
 } cnc_core_cfg_t;

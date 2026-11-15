@@ -63,6 +63,17 @@ void stepgen_set_velocity(stepgen_t *sg, unsigned axis, int32_t vel_mhz)
     sg->axis[axis].inc_cmd = vel_mhz < 0 ? -(int32_t)inc : (int32_t)inc;
 }
 
+void stepgen_set_inc(stepgen_t *sg, unsigned axis, int64_t inc)
+{
+    if (axis >= sg->cfg.num_axes)
+        return;
+    if (inc > (int64_t)sg->inc_max)
+        inc = (int64_t)sg->inc_max;
+    if (inc < -(int64_t)sg->inc_max)
+        inc = -(int64_t)sg->inc_max;
+    sg->axis[axis].inc_cmd = (int32_t)inc;
+}
+
 void stepgen_stop_all(stepgen_t *sg)
 {
     for (unsigned i = 0; i < sg->cfg.num_axes; i++)
@@ -116,18 +127,28 @@ void stepgen_render(stepgen_t *sg, uint32_t *buf, unsigned n)
         }
         a->inc = inc;
         a->count = count;
-        a->d_prev = a->d_last;
-        a->d_last = (int64_t)cmd * (int64_t)moving;
-        a->pos += a->d_last;
+        int64_t d = (int64_t)cmd * (int64_t)moving;
+        a->d_cur += d;
+        a->pos += d;
     }
-    sg->n_prev = sg->n_last;
-    sg->n_last = n;
 }
 
-int32_t stepgen_position(const stepgen_t *sg, unsigned axis, unsigned played)
+void stepgen_end_block(stepgen_t *sg, unsigned block_samples)
+{
+    for (unsigned i = 0; i < sg->cfg.num_axes; i++) {
+        stepgen_axis_t *a = &sg->axis[i];
+        a->d_prev = a->d_last;
+        a->d_last = a->d_cur;
+        a->d_cur = 0;
+    }
+    sg->n_prev = sg->n_last;
+    sg->n_last = block_samples;
+}
+
+int64_t stepgen_position_raw(const stepgen_t *sg, unsigned axis, unsigned played)
 {
     const stepgen_axis_t *a = &sg->axis[axis];
-    int64_t p = a->pos - a->d_last - a->d_prev;    /* start of the older block */
+    int64_t p = a->pos - a->d_cur - a->d_last - a->d_prev;    /* start of the older block */
 
     if (played <= sg->n_prev) {
         if (sg->n_prev)
@@ -140,6 +161,11 @@ int32_t stepgen_position(const stepgen_t *sg, unsigned axis, unsigned played)
         if (sg->n_last)
             p += a->d_last * (int64_t)q / (int64_t)sg->n_last;
     }
+    return p;
+}
+
+int32_t stepgen_position(const stepgen_t *sg, unsigned axis, unsigned played)
+{
     /* 2^-32 steps -> 1/256 steps; wraps like the host expects */
-    return (int32_t)(uint32_t)((uint64_t)p >> 24);
+    return (int32_t)(uint32_t)((uint64_t)stepgen_position_raw(sg, axis, played) >> 24);
 }

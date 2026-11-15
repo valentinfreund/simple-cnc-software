@@ -3,7 +3,7 @@
  *
  * Hardware use:
  *   TIM2 update -> DMA1 stream 0 -> GPIOB->BSRR   step/dir samples, circular
- *   SPI1 slave  -> DMA1 stream 1 (rx) / 2 (tx)    one 64-byte frame per servo period
+ *   SPI1 slave  -> DMA1 stream 1 (rx) / 2 (tx)    one frame per servo period
  * All three interrupts run at the same priority, as cnc_core requires.
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
@@ -230,7 +230,7 @@ void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
     spi_frame_done(0);
 }
 
-/* Called every 0.5 ms. Between two frames NSS is high; if a transfer is then
+/* Called after every rendered block. Between two frames NSS is high; if a transfer is then
  * still pending, the frame either ended without the SPI end-of-transfer event
  * or the host sent a wrong number of bytes. Close it and listen again, so a
  * glitch can never leave the link out of step for good. */
@@ -397,6 +397,9 @@ int main(void)
             .axis = BOARD_AXES,
         },
         .block_samples = BOARD_BLOCK_SAMPLES,
+        .host_period_samples = BOARD_SAMPLE_RATE_HZ / 1000000u * BOARD_HOST_PERIOD_US +
+                               BOARD_SAMPLE_RATE_HZ % 1000000u * BOARD_HOST_PERIOD_US / 1000000u,
+        .margin_samples = BOARD_SAMPLE_RATE_HZ / 100000u * BOARD_MARGIN_US / 10u,
         .watchdog_ms = BOARD_WATCHDOG_MS,
         .estop_input = BOARD_ESTOP_INPUT,
     };

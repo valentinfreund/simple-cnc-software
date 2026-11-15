@@ -5,10 +5,16 @@
  * LinuxCNC HAL component, so both sides always agree on the frame layout.
  *
  * One fixed-size frame travels in each direction per servo period (1 ms):
- *   host  -> board : cncp_cmd_t     (velocity commands, outputs)
- *   board -> host  : cncp_status_t  (step counts, inputs, state)
+ *   host  -> board : cncp_cmd_t     (position commands, outputs)
+ *   board -> host  : cncp_status_t  (positions, tracking error, inputs, state)
  * The transport (SPI, UDP, ...) only has to move CNCP_FRAME_SIZE bytes.
  * All fields are little-endian.
+ *
+ * Positions are absolute, in 1/CNCP_POS_PER_STEP steps, and wrap at 32 bit;
+ * both sides only ever use differences. Each command is a waypoint: the
+ * board moves in a straight line (constant speed) from the previous waypoint
+ * to this one within one servo period of its own clock, which it keeps
+ * locked to the average frame rate of the host.
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -17,14 +23,14 @@
 
 #include <stdint.h>
 
-#define CNCP_VERSION       1
-#define CNCP_FRAME_SIZE    64
+#define CNCP_VERSION       2
+#define CNCP_FRAME_SIZE    80
 #define CNCP_MAX_JOINTS    8
 #define CNCP_NUM_ANALOG    2
 #define CNCP_POS_PER_STEP  256           /* resolution of the position feedback */
 
-#define CNCP_MAGIC_CMD     0x31444D43u   /* "CMD1" */
-#define CNCP_MAGIC_STATUS  0x31415453u   /* "STA1" */
+#define CNCP_MAGIC_CMD     0x32444D43u   /* "CMD2" */
+#define CNCP_MAGIC_STATUS  0x32415453u   /* "STA2" */
 
 /* cncp_cmd_t.flags */
 #define CNCP_CMD_ENABLE    0x01u   /* host wants drives enabled and motion running */
@@ -48,10 +54,10 @@ typedef struct __attribute__((packed)) {
     uint8_t  version;                      /* CNCP_VERSION                         */
     uint8_t  flags;                        /* CNCP_CMD_*                           */
     uint16_t seq;                          /* incremented by the host every frame  */
-    int32_t  vel_mhz[CNCP_MAX_JOINTS];     /* signed step rate in 1/1000 steps/s   */
+    int32_t  pos_cmd[CNCP_MAX_JOINTS];     /* position to reach one period from now */
     uint32_t outputs;                      /* digital outputs, bit n = output n    */
     uint16_t analog[CNCP_NUM_ANALOG];      /* 0..65535 (e.g. spindle speed)        */
-    uint8_t  reserved[14];
+    uint8_t  reserved[30];
     uint16_t crc;                          /* CRC16-CCITT over all previous bytes  */
 } cncp_cmd_t;
 
@@ -60,13 +66,16 @@ typedef struct __attribute__((packed)) {
     uint8_t  version;                      /* CNCP_VERSION                         */
     uint8_t  state;                        /* CNCP_STATE_*                         */
     uint16_t seq;                          /* seq of the last valid command frame  */
-    int32_t  pos[CNCP_MAX_JOINTS];         /* position in 1/CNCP_POS_PER_STEP steps
-                                              at the moment this frame was built
-                                              (wraps at 32 bit)                    */
+    int32_t  pos[CNCP_MAX_JOINTS];         /* position on the pins at the moment
+                                              this frame was built                 */
+    int16_t  err[CNCP_MAX_JOINTS];         /* planned minus actual position at that
+                                              moment (saturating)                  */
     uint32_t inputs;                       /* digital inputs, bit n = input n      */
     uint16_t fault;                        /* CNCP_FAULT_*                         */
     uint8_t  live;                         /* CNCP_LIVE_*                          */
-    uint8_t  reserved[15];
+    uint8_t  late;                         /* counts commands that came too late
+                                              to be executed on time (wraps)       */
+    uint8_t  reserved[14];
     uint16_t crc;                          /* CRC16-CCITT over all previous bytes  */
 } cncp_status_t;
 
