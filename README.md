@@ -1,25 +1,34 @@
 # simple-cnc-software
-CNC Software that provides basic motor control functionality for 3 axis, accompanied by a Graphical User Interface. 
 
-The current Host Software can be tested without the STM32 and is currently configured to be used without
+Motorsteuerung für eine DIY-CNC-Fräse: **LinuxCNC** plant die Bahn, ein
+**Echtzeitboard** (STM32H723) erzeugt die Schritt/Richtungs-Signale für die
+Servotreiber und liest Schalter ein.
 
-```bash
-# Debian/Ubuntu systems
-cd cnc-software-host_V1.2
-make
-./CNC_Control
 ```
-Loads the blank.nc file into the editor on start-up. (has to be in the same directory as the bin)
+LinuxCNC (Raspberry Pi / PC)                 Echtzeitboard
+  G-Code, Bahnplanung, Oberfläche   <---->     Schritterzeugung (500 kHz Abtastrate)
+  HAL-Treiber cncboard_spi         64-Byte-    Ein-/Ausgänge, Not-Halt, Watchdog
+  1 Frame pro Millisekunde         Frames
+```
 
-### Split into two parts: 
--  Directory containing the Core files to upload on an STM32H723VGT6. 
--  Trajectory Planner with GUI and a GCode-Editor which runs under Linux (tested on Ubuntu 20.04) on a Host PC or RaspberryPi5
+| Ordner | Inhalt |
+|---|---|
+| `firmware/lib/` | boardübergreifende Bibliothek: Protokoll, Schritterzeugung, Zustandslogik |
+| `firmware/boards/` | fertige Builds pro Board und Schnittstelle (`weact-h723-spi`, geplant: `weact-h723-w5500`) |
+| `firmware/tests/` | Tests der Bibliothek auf dem PC |
+| `linuxcnc/hal/` | HAL-Treiber für LinuxCNC |
+| `linuxcnc/configs/` | Beispielkonfiguration für eine Portalfräse (X, Y1/Y2, Z) |
+| `docs/` | [Anleitung](docs/anleitung.md): Verdrahtung, Flashen, Einrichtung, Inbetriebnahme |
+| `legacy/` | die frühere eigene Steuerung (Qt-Host + Firmware V1.1), nicht mehr gepflegt |
 
-DISCLAIMER: Project is ongoing and still missing essential features which will be added in the future
+## Stand
 
-### Pictures taken while testing:
-![Alt Text](images/status_bereit.png)
+| Teil | Stand |
+|---|---|
+| Bibliothek (`firmware/lib`) | auf dem PC getestet (`make -C firmware/tests`) |
+| Firmware `weact-h723-spi` | kompiliert, **noch nicht auf Hardware getestet** |
+| HAL-Treiber `cncboard_spi` | gegen die LinuxCNC-2.9-Header geprüft, **noch nicht in LinuxCNC gelaufen** |
+| Beispielkonfiguration | **ungetestet**, Maschinenwerte sind Platzhalter |
+| Spindel (PWM/0–10 V), Ethernet-Build | offen |
 
-![Alt Text](images/status_laufend.png)
-
-![Alt Text](images/status_pause.png)
+Lizenz: GPL-2.0 (siehe `LICENSE`).
