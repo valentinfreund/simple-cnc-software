@@ -182,9 +182,15 @@ eigenen Position. Es gibt nichts abzustimmen.
   Frames im Mittel ankommen, und richtet sein Millisekundenraster danach aus.
   Einzelne verspätete Frames ändern daran nichts.
 - **Verzögerung:** Die ganze Maschine läuft etwa 2 ms hinter den Sollwerten
-  her, alle Achsen gleich. Auf die Bahn hat das keinen Einfluss. Beim
-  Antasten (G38) und bei der Referenzfahrt steckt es als kleiner, konstanter
-  Versatz (Geschwindigkeit × 2 ms) im Ergebnis; langsam antasten.
+  her, alle Achsen gleich. Auf die Bahn hat das keinen Einfluss.
+- **Referenzfahrt und Antasten (G38):** Beides steuert LinuxCNC auf dem
+  Rechner; das Board meldet nur einmal pro Millisekunde den Zustand der
+  Schalter. Bis LinuxCNC einen Schaltvorgang sieht, vergehen 1,6 bis 2,6 ms,
+  dazu kommen die 2 ms Verzögerung der Bewegung. Die gespeicherte Position
+  liegt deshalb um etwa Geschwindigkeit × 4 ms neben der wahren
+  Schaltposition (immer in Fahrtrichtung, also wiederholbar) und streut um
+  Geschwindigkeit × ±0,5 ms. Bei 2 mm/s sind das 8 µm Versatz und ±1 µm
+  Streuung. Deshalb langsam antasten (`HOME_LATCH_VEL`, Vorschub bei G38).
 - **Verspätete oder verlorene Frames:** Kommt ein Sollwert mehr als 0,2 ms
   später als erwartet oder gar nicht, fährt das Board mit der aktuellen
   Geschwindigkeit weiter und holt die Abweichung mit dem nächsten Sollwert
