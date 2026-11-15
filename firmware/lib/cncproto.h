@@ -21,6 +21,7 @@
 #define CNCP_FRAME_SIZE    64
 #define CNCP_MAX_JOINTS    8
 #define CNCP_NUM_ANALOG    2
+#define CNCP_POS_PER_STEP  256           /* resolution of the position feedback */
 
 #define CNCP_MAGIC_CMD     0x31444D43u   /* "CMD1" */
 #define CNCP_MAGIC_STATUS  0x31415453u   /* "STA1" */
@@ -59,7 +60,9 @@ typedef struct __attribute__((packed)) {
     uint8_t  version;                      /* CNCP_VERSION                         */
     uint8_t  state;                        /* CNCP_STATE_*                         */
     uint16_t seq;                          /* seq of the last valid command frame  */
-    int32_t  count[CNCP_MAX_JOINTS];       /* generated steps (wraps at 32 bit)    */
+    int32_t  pos[CNCP_MAX_JOINTS];         /* position in 1/CNCP_POS_PER_STEP steps
+                                              at the moment this frame was built
+                                              (wraps at 32 bit)                    */
     uint32_t inputs;                       /* digital inputs, bit n = input n      */
     uint16_t fault;                        /* CNCP_FAULT_*                         */
     uint8_t  live;                         /* CNCP_LIVE_*                          */

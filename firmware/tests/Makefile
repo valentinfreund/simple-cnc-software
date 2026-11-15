@@ -5,10 +5,14 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -I../l
 test: test_core
 	./test_core
 
-test_core: test_core.c ../lib/cnc_core.c ../lib/stepgen.c ../lib/*.h
-	$(CC) $(CFLAGS) -o $@ test_core.c ../lib/cnc_core.c ../lib/stepgen.c
+test_core sim_loop: %: %.c sim.h ../lib/cnc_core.c ../lib/stepgen.c ../lib/*.h
+	$(CC) $(CFLAGS) -o $@ $< ../lib/cnc_core.c ../lib/stepgen.c -lm
+
+# Closed-loop timing simulation (host PID + board), prints lag and jitter figures.
+sim: sim_loop
+	./sim_loop
 
 clean:
-	rm -f test_core
+	rm -f test_core sim_loop
 
-.PHONY: test clean
+.PHONY: test sim clean

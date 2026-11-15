@@ -33,14 +33,21 @@ net amp-fault   or2.fault.out   => joint.0.amp-fault-in joint.1.amp-fault-in joi
 
 # ---- joints -----------------------------------------------------------------
 # The board generates steps from a velocity command. The pid closes the
-# position loop on the step count: FF1 passes the commanded velocity through,
-# Pgain removes what is left. Pgain must stay well below 1/servo period (1000)
-# because the feedback is about two servo periods old.
+# position loop on the reported position:
+#   FF1 = 1      passes the commanded velocity through
+#   FF2 = 0.0025 makes up for the dead time of the loop (about 2.5 ms from a
+#                command to its effect in the feedback)
+#   Pgain = 100  removes what is left. Higher values react harder to timing
+#                jitter of the host and gain nothing; it must stay far below
+#                1/servo period (1000) because of the dead time.
+# `make -C firmware/tests sim` simulates this loop; `sim_loop <Pgain> <FF2>`
+# tries other values.
 
 # joint 0: X
 setp cncboard.joint.0.scale [JOINT_0]SCALE
-setp pid.x.Pgain 200
+setp pid.x.Pgain 100
 setp pid.x.FF1 1
+setp pid.x.FF2 0.0025
 setp pid.x.maxoutput [JOINT_0]MAX_VELOCITY
 net x-pos-cmd  joint.0.motor-pos-cmd  => pid.x.command
 net x-pos-fb   cncboard.joint.0.pos-fb => pid.x.feedback joint.0.motor-pos-fb
@@ -50,8 +57,9 @@ net x-home     cncboard.in.00         => joint.0.home-sw-in
 
 # joint 1: Y1
 setp cncboard.joint.1.scale [JOINT_1]SCALE
-setp pid.y1.Pgain 200
+setp pid.y1.Pgain 100
 setp pid.y1.FF1 1
+setp pid.y1.FF2 0.0025
 setp pid.y1.maxoutput [JOINT_1]MAX_VELOCITY
 net y1-pos-cmd joint.1.motor-pos-cmd  => pid.y1.command
 net y1-pos-fb  cncboard.joint.1.pos-fb => pid.y1.feedback joint.1.motor-pos-fb
@@ -61,8 +69,9 @@ net y1-home    cncboard.in.01         => joint.1.home-sw-in
 
 # joint 2: Y2
 setp cncboard.joint.2.scale [JOINT_2]SCALE
-setp pid.y2.Pgain 200
+setp pid.y2.Pgain 100
 setp pid.y2.FF1 1
+setp pid.y2.FF2 0.0025
 setp pid.y2.maxoutput [JOINT_2]MAX_VELOCITY
 net y2-pos-cmd joint.2.motor-pos-cmd  => pid.y2.command
 net y2-pos-fb  cncboard.joint.2.pos-fb => pid.y2.feedback joint.2.motor-pos-fb
@@ -72,8 +81,9 @@ net y2-home    cncboard.in.02         => joint.2.home-sw-in
 
 # joint 3: Z
 setp cncboard.joint.3.scale [JOINT_3]SCALE
-setp pid.z.Pgain 200
+setp pid.z.Pgain 100
 setp pid.z.FF1 1
+setp pid.z.FF2 0.0025
 setp pid.z.maxoutput [JOINT_3]MAX_VELOCITY
 net z-pos-cmd  joint.3.motor-pos-cmd  => pid.z.command
 net z-pos-fb   cncboard.joint.3.pos-fb => pid.z.feedback joint.3.motor-pos-fb

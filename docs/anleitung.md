@@ -167,9 +167,21 @@ make -C firmware/boards/weact-h723-spi flash
    mit kleiner Geschwindigkeit, dann Verfahrwege und Portalausrichtung
    (`HOME_OFFSET` von Y1/Y2).
 
-## 7. Regler-Abstimmung
+## 7. Regler-Abstimmung und Zeitverhalten
 
 Das Board fährt Geschwindigkeiten; die Lage regelt in LinuxCNC je Gelenk ein
-`pid` mit `FF1 = 1` und `Pgain = 200`. Bleibt im Betrieb ein Schleppfehler
-stehen, `Pgain` vorsichtig erhöhen; schwingt die Rückmeldung, verringern.
-Danach `FERROR`/`MIN_FERROR` in `fraese.ini` enger stellen.
+`pid` mit `FF1 = 1`, `FF2 = 0.0025` und `Pgain = 100`.
+
+- Alle Achsen bekommen ihre Sollwerte im selben Frame und geben ihre Pulse im
+  selben Abtasttakt aus (ein gemeinsames Portregister, 2 µs Raster). Zwischen
+  den Achsen gibt es deshalb keinen Zeitversatz.
+- Zwischen Sollwert und Wirkung liegen etwa 2,5 ms Totzeit. Sie ist für alle
+  Achsen gleich und verschiebt die Bahn nur zeitlich; `FF2` gleicht sie beim
+  Beschleunigen aus.
+- Abstimmen mit `halscope` auf den Schleppfehler (`joint.N.f-error`): `FF2`
+  so stellen, dass er beim Beschleunigen und Bremsen möglichst flach bleibt.
+  `Pgain` nur erhöhen, wenn ein Fehler stehen bleibt; ein hoher Wert
+  verstärkt das Zeitrauschen des Raspberry Pi.
+- `make -C firmware/tests sim` simuliert den Regelkreis auf dem PC und gibt
+  Zeitversatz, Welligkeit und Schleppfehler aus.
+- Danach `FERROR`/`MIN_FERROR` in `fraese.ini` enger stellen.

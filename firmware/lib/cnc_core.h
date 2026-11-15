@@ -31,6 +31,11 @@ uint32_t cnc_board_read_inputs(void);                 /* bit n = input n, 1 = ac
 void     cnc_board_write_outputs(uint32_t outputs);   /* bit n = output n                */
 void     cnc_board_write_analog(unsigned ch, uint16_t value);
 void     cnc_board_set_drive_enable(int on);          /* servo-on signal for all drives  */
+/* How many samples of the two most recently rendered blocks have been output
+ * so far (0 .. 2 * block_samples), counted from the start of the older one.
+ * Used to report the position of this very moment instead of the position at
+ * the end of the output buffer. */
+unsigned cnc_board_samples_played(void);
 
 /* --- called by the board port ------------------------------------------ */
 int  cnc_core_init(const cnc_core_cfg_t *cfg);

@@ -82,6 +82,7 @@ void stepgen_render(stepgen_t *sg, uint32_t *buf, unsigned n)
         uint32_t inc = cmd < 0 ? (uint32_t)(-cmd) : (uint32_t)cmd;
         uint8_t want_dir = inc ? (cmd > 0) : a->dir;   /* keep dir at standstill */
         int32_t count = a->count;
+        unsigned moving = 0;       /* samples in which the position advanced */
 
         for (unsigned s = 0; s < n; s++) {
             uint32_t w = 0;
@@ -109,10 +110,36 @@ void stepgen_render(stepgen_t *sg, uint32_t *buf, unsigned n)
                     count += a->dir ? 1 : -1;
                 }
                 a->phase = p;
+                moving++;
             }
             buf[s] |= w;
         }
         a->inc = inc;
         a->count = count;
+        a->d_prev = a->d_last;
+        a->d_last = (int64_t)cmd * (int64_t)moving;
+        a->pos += a->d_last;
     }
+    sg->n_prev = sg->n_last;
+    sg->n_last = n;
+}
+
+int32_t stepgen_position(const stepgen_t *sg, unsigned axis, unsigned played)
+{
+    const stepgen_axis_t *a = &sg->axis[axis];
+    int64_t p = a->pos - a->d_last - a->d_prev;    /* start of the older block */
+
+    if (played <= sg->n_prev) {
+        if (sg->n_prev)
+            p += a->d_prev * (int64_t)played / (int64_t)sg->n_prev;
+    } else {
+        unsigned q = played - sg->n_prev;
+        if (q > sg->n_last)
+            q = sg->n_last;
+        p += a->d_prev;
+        if (sg->n_last)
+            p += a->d_last * (int64_t)q / (int64_t)sg->n_last;
+    }
+    /* 2^-32 steps -> 1/256 steps; wraps like the host expects */
+    return (int32_t)(uint32_t)((uint64_t)p >> 24);
 }

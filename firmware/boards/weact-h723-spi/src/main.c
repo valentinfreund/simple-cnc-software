@@ -74,31 +74,66 @@ void cnc_board_set_drive_enable(int on)
     BOARD_ENABLE_PORT->BSRR = on ? BOARD_ENABLE_PIN : (uint32_t)BOARD_ENABLE_PIN << 16;
 }
 
-/* ---- clock: HSI -> PLL1 -> 550 MHz CPU, 275 MHz bus/timers ---------------- */
+static volatile uint8_t last_rendered_half = 1;   /* 0 = first, 1 = second half of step_buf */
+
+unsigned cnc_board_samples_played(void)
+{
+    /* Position of the DMA read pointer in the circular buffer. */
+    unsigned idx = 2u * BOARD_BLOCK_SAMPLES - __HAL_DMA_GET_COUNTER(&hdma_step);
+    if (idx >= 2u * BOARD_BLOCK_SAMPLES)
+        idx = 0;
+    unsigned half = idx / BOARD_BLOCK_SAMPLES, off = idx % BOARD_BLOCK_SAMPLES;
+    /* Normally the half that was rendered before the last one is playing. If
+     * the read pointer is already in the last rendered half, the next render
+     * interrupt is pending and we are one block further. */
+    return half != last_rendered_half ? off : BOARD_BLOCK_SAMPLES + off;
+}
+
+/* ---- clock: 550 MHz CPU, 275 MHz bus/timers ----------------------------------
+ * Runs from the 25 MHz crystal of the board, so the step rates are exact. If
+ * the crystal does not start, the internal oscillator is used instead: the
+ * board still works, but all rates are off by up to about 1 %, which shows
+ * up as a small speed-dependent following error in LinuxCNC. */
+
+static int pll_start(int use_crystal)
+{
+    RCC_OscInitTypeDef osc = {0};
+
+    osc.PLL.PLLState = RCC_PLL_ON;
+    osc.PLL.PLLP = 1;
+    osc.PLL.PLLQ = 3;
+    osc.PLL.PLLR = 2;
+    osc.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
+    if (use_crystal) {                       /* 25 MHz / 5 * 110 = 550 MHz */
+        osc.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+        osc.HSEState = RCC_HSE_ON;
+        osc.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+        osc.PLL.PLLM = 5;
+        osc.PLL.PLLN = 110;
+        osc.PLL.PLLRGE = RCC_PLL1VCIRANGE_2;
+        osc.PLL.PLLFRACN = 0;
+    } else {                                 /* 64 MHz / 4 * 34.375 = 550 MHz */
+        osc.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+        osc.HSIState = RCC_HSI_DIV1;
+        osc.HSICalibrationValue = 64;
+        osc.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+        osc.PLL.PLLM = 4;
+        osc.PLL.PLLN = 34;
+        osc.PLL.PLLRGE = RCC_PLL1VCIRANGE_3;
+        osc.PLL.PLLFRACN = 3072;
+    }
+    return HAL_RCC_OscConfig(&osc) == HAL_OK;
+}
 
 static void clock_init(void)
 {
-    RCC_OscInitTypeDef osc = {0};
     RCC_ClkInitTypeDef clk = {0};
 
     HAL_PWREx_ConfigSupply(PWR_LDO_SUPPLY);
     __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE0);
     while (!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) { }
 
-    osc.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-    osc.HSIState = RCC_HSI_DIV1;
-    osc.HSICalibrationValue = 64;
-    osc.PLL.PLLState = RCC_PLL_ON;
-    osc.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-    osc.PLL.PLLM = 4;
-    osc.PLL.PLLN = 34;
-    osc.PLL.PLLP = 1;
-    osc.PLL.PLLQ = 3;
-    osc.PLL.PLLR = 2;
-    osc.PLL.PLLRGE = RCC_PLL1VCIRANGE_3;
-    osc.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
-    osc.PLL.PLLFRACN = 3072;
-    if (HAL_RCC_OscConfig(&osc) != HAL_OK)
+    if (!pll_start(1) && !pll_start(0))
         Error_Handler();
 
     clk.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 |
@@ -275,6 +310,7 @@ static void step_half_done(DMA_HandleTypeDef *h)
 {
     (void)h;
     cnc_core_render(&step_buf[0]);                   /* first half is free now  */
+    last_rendered_half = 0;
     spi_poll();
 }
 
@@ -282,6 +318,7 @@ static void step_full_done(DMA_HandleTypeDef *h)
 {
     (void)h;
     cnc_core_render(&step_buf[BOARD_BLOCK_SAMPLES]); /* second half is free now */
+    last_rendered_half = 1;
     spi_poll();
 }
 

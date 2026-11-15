@@ -43,12 +43,15 @@ typedef struct {
     uint8_t  pulse;             /* samples left until the step pin is released */
     uint8_t  holdoff;           /* samples left of dir setup time              */
     volatile int32_t count;     /* signed number of generated steps            */
+    int64_t  pos;               /* rendered position in 2^-32 steps            */
+    int64_t  d_last, d_prev;    /* position change of the last two blocks      */
     uint32_t step_on, step_off, dir_pos, dir_neg;   /* precomputed samples     */
 } stepgen_axis_t;
 
 typedef struct {
     stepgen_cfg_t  cfg;
     uint32_t       inc_max;     /* limit so that step_len + step_space is kept */
+    unsigned       n_last, n_prev;   /* sizes of the last two rendered blocks  */
     stepgen_axis_t axis[STEPGEN_MAX_AXES];
 } stepgen_t;
 
@@ -70,6 +73,13 @@ void stepgen_stop_all(stepgen_t *sg);
 
 /* Render the next n samples into buf. */
 void stepgen_render(stepgen_t *sg, uint32_t *buf, unsigned n);
+
+/* Position of one axis in 1/256 steps at the sample that is being output
+ * right now. The last two rendered blocks are still (partly) waiting in the
+ * output buffer; `played` says how many of their samples are already out
+ * (0 .. size of both blocks), counted from the start of the older block. */
+#define STEPGEN_POS_PER_STEP 256
+int32_t stepgen_position(const stepgen_t *sg, unsigned axis, unsigned played);
 
 static inline int32_t stepgen_count(const stepgen_t *sg, unsigned axis)
 {

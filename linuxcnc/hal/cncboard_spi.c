@@ -14,7 +14,7 @@
  *
  * Pins and parameters:
  *   cncboard.joint.N.vel-cmd   float in   velocity command in machine units/s
- *   cncboard.joint.N.pos-fb    float out  position feedback in machine units
+ *   cncboard.joint.N.pos-fb    float out  position feedback in machine units (1/256 step resolution)
  *   cncboard.joint.N.counts    s32   out  position feedback in steps
  *   cncboard.joint.N.scale     float rw   steps per machine unit (parameter)
  *   cncboard.enable            bit   in   run request; a rising edge starts the board
@@ -136,11 +136,11 @@ static void update(void *arg, long period)
             joint_t *j = &d->joint[i];
             double scale = j->scale != 0.0 ? j->scale : 1.0;
             if (!d->have_counts)
-                j->last_raw = st.count[i];      /* start at 0 wherever the board is */
-            j->total += (int32_t)((uint32_t)st.count[i] - (uint32_t)j->last_raw);
-            j->last_raw = st.count[i];
-            *j->counts = (hal_s32_t)j->total;
-            *j->pos_fb = (double)j->total / scale;
+                j->last_raw = st.pos[i];        /* start at 0 wherever the board is */
+            j->total += (int32_t)((uint32_t)st.pos[i] - (uint32_t)j->last_raw);
+            j->last_raw = st.pos[i];
+            *j->counts = (hal_s32_t)(j->total / CNCP_POS_PER_STEP);
+            *j->pos_fb = (double)j->total / (CNCP_POS_PER_STEP * scale);
         }
         d->have_counts = 1;
         for (i = 0; i < NUM_IN; i++) {

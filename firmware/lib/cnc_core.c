@@ -6,6 +6,8 @@
 #include "cnc_core.h"
 #include <string.h>
 
+_Static_assert(CNCP_POS_PER_STEP == STEPGEN_POS_PER_STEP, "position units");
+
 static struct {
     cnc_core_cfg_t cfg;
     stepgen_t sg;
@@ -105,8 +107,9 @@ void cnc_core_frame(const uint8_t *rx, uint8_t *tx)
     memset(&st, 0, sizeof(st));
     st.state = core.state;
     st.seq = core.seq;
+    unsigned played = cnc_board_samples_played();
     for (unsigned i = 0; i < core.sg.cfg.num_axes; i++)
-        st.count[i] = stepgen_count(&core.sg, i);
+        st.pos[i] = stepgen_position(&core.sg, i, played);
     st.inputs = inputs;
     st.fault = core.fault;
     st.live = estop_active(inputs) ? CNCP_LIVE_ESTOP : 0;

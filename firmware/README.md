@@ -31,8 +31,9 @@ Ein Board-Build ist ein Ordner unter `boards/` mit eigenem Makefile. Er muss
    Schritt/Richtungs-Pins ausgeben (Timer + DMA, FPGA-Schieberegister, ...),
 2. jeden empfangenen 64-Byte-Frame an `cnc_core_frame()` geben und den
    zurückgelieferten Statusframe an den Host schicken,
-3. die vier Funktionen `cnc_board_*()` aus `cnc_core.h` bereitstellen
-   (Eingänge lesen, Ausgänge, Analogwerte und Servo-Freigabe schreiben).
+3. die fünf Funktionen `cnc_board_*()` aus `cnc_core.h` bereitstellen
+   (Eingänge lesen, Ausgänge, Analogwerte und Servo-Freigabe schreiben,
+   Abspielposition im Ausgabepuffer melden).
 
 `cnc_core_render()` und `cnc_core_frame()` dürfen sich nicht gegenseitig
 unterbrechen (gleiche Interrupt-Priorität).
